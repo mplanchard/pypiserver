@@ -30,7 +30,7 @@ import pytest
 
 _BUFF_SIZE = 2**16
 _port = 8090
-SLEEP_AFTER_SRV = 3#sec
+SLEEP_AFTER_SRV = 3  # sec
 
 @pytest.fixture
 def port():
@@ -49,7 +49,8 @@ def _run_server(packdir, port, authed, other_cli=''):
     pswd_opts = pswd_opt_choices[authed]
     cmd = "%s -m pypiserver.__main__ -vvv --overwrite -p %s %s %s %s" % (
         sys.executable, port, pswd_opts, other_cli, packdir)
-    proc = subprocess.Popen(cmd.split(), bufsize=_BUFF_SIZE)
+    proc = subprocess.Popen(cmd.split(), bufsize=_BUFF_SIZE,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     time.sleep(SLEEP_AFTER_SRV)
     assert proc.poll() is None
 
@@ -63,12 +64,14 @@ def _kill_server(srv):
         time.sleep(1)
     finally:
         srv.proc.kill()
+        out, err = srv.proc.communicate()
+        print('server out: %s' % out)
+        print('server err: %s' % err)
 
 
 @contextlib.contextmanager
 def new_server(packdir, port, authed=False, other_cli=''):
-    srv = _run_server(packdir, port,
-                      authed=authed, other_cli=other_cli)
+    srv = _run_server(packdir, port, authed=authed, other_cli=other_cli)
     try:
         yield srv
     finally:
@@ -235,16 +238,16 @@ def pypirc_file(txt):
 @pytest.mark.parametrize("pkg_frmt", ['bdist', 'bdist_wheel'])
 def test_setuptoolsUpload_open(empty_packdir, port, project, package,
                                pkg_frmt):
-    print('in bad method')
-    assert 0
     with new_server(empty_packdir, port):
-        with chdir(project.strpath):
-            url = _build_url(port, None, None)
-            cmd = "setup.py -vvv %s upload -r %s" % (pkg_frmt, url)
-            for i in range(5):
-                print('++Attempt #%s' % i)
-                assert _run_python(cmd) == 0
-            time.sleep(SLEEP_AFTER_SRV)
+        pass
+    assert 0
+        # with chdir(project.strpath):
+        #     url = _build_url(port, None, None)
+        #     cmd = "setup.py -vvv %s upload -r %s" % (pkg_frmt, url)
+        #     for i in range(5):
+        #         print('++Attempt #%s' % i)
+        #         assert _run_python(cmd) == 0
+        #     time.sleep(SLEEP_AFTER_SRV)
     assert len(empty_packdir.listdir()) == 1
 
 

@@ -257,8 +257,6 @@ def main(argv=None):
         auth_err = "When auth-ops-list is empty (-a=.), password-file (-P=%r) must also be empty ('.')!"
         sys.exit(auth_err % c.password_file)
 
-    print('authenticated: %s' % c.authenticated)
-
     if len(roots) == 0:
         roots.append(os.path.expanduser("~/packages"))
 
@@ -287,6 +285,8 @@ def main(argv=None):
     if c.server not in bottle.server_names:
         sys.exit("unknown server %r. choose one of %s" % (
             c.server, ", ".join(bottle.server_names.keys())))
+
+    print('authenticated: %s' % c.authenticated)
 
     bottle.debug(True)
     bottle._stderr = ft.partial(pypiserver._logwrite,
