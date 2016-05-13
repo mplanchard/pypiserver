@@ -257,6 +257,8 @@ def main(argv=None):
         auth_err = "When auth-ops-list is empty (-a=.), password-file (-P=%r) must also be empty ('.')!"
         sys.exit(auth_err % c.password_file)
 
+    print('authenticated: %s' % c.authenticated)
+
     if len(roots) == 0:
         roots.append(os.path.expanduser("~/packages"))
 

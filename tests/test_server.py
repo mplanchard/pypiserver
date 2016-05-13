@@ -44,7 +44,7 @@ Srv = namedtuple('Srv', ('proc', 'port', 'package'))
 def _run_server(packdir, port, authed, other_cli=''):
     pswd_opt_choices = {
         True: "-Ptests/htpasswd.a.a -a update,download",
-        False: "-P . -a ."
+        False: "-P. -a."
     }
     pswd_opts = pswd_opt_choices[authed]
     cmd = "%s -m pypiserver.__main__ -vvv --overwrite -p %s %s %s %s" % (
@@ -235,6 +235,8 @@ def pypirc_file(txt):
 @pytest.mark.parametrize("pkg_frmt", ['bdist', 'bdist_wheel'])
 def test_setuptoolsUpload_open(empty_packdir, port, project, package,
                                pkg_frmt):
+    print('in bad method')
+    assert 0
     with new_server(empty_packdir, port):
         with chdir(project.strpath):
             url = _build_url(port, None, None)
