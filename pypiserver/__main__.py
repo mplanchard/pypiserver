@@ -196,8 +196,7 @@ def main(argv=None):
                 sys.exit("Invalid port(%r) due to: %s" % (v, err))
         elif k in ("-a", "--authenticate"):
             c.authenticated = [a.lower()
-                               for a in re.split("[, ]+", v.strip(" ,"))
-                               if a]
+                               for a in re.split("[, ]+", v.strip(" ,")) if a]
             if c.authenticated == ['.']:
                 c.authenticated = []
             else:
