@@ -31,9 +31,9 @@ import pypiserver
 ])
 def test_paste_app_factory(conf_options, monkeypatch):
     """Test the paste_app_factory method"""
-    monkeypatch.setattr('pypiserver.core.configure',
-                        lambda **x: (x, [x.keys()]))
-    pypiserver.paste_app_factory({}, **conf_options)
+    # monkeypatch.setattr('pypiserver.core.configure',
+    #                     lambda **x: (x, [x.keys()]))
+    pypiserver.paste_app_factory({}, validate_config=False, **conf_options)
 
 
 

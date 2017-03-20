@@ -151,13 +151,14 @@ def usage():
 
 def main(argv=None):
     import pypiserver
+    from pypiserver.core import Configuration
 
     if argv is None:
         argv = sys.argv
 
     command = "serve"
 
-    c = pypiserver.Configuration(**pypiserver.default_config())
+    c = Configuration()
 
     update_dry_run = True
     update_directory = None
@@ -255,26 +256,25 @@ def main(argv=None):
             print(usage())
             sys.exit(0)
 
-    if (not c.authenticated and c.password_file != '.' or
-            c.authenticated and c.password_file == '.'):
-        auth_err = "When auth-ops-list is empty (-a=.), password-file (-P=%r) must also be empty ('.')!"
-        sys.exit(auth_err % c.password_file)
-
     if len(roots) == 0:
         roots.append(os.path.expanduser("~/packages"))
-
-    roots=[os.path.abspath(x) for x in roots]
+    roots = [os.path.abspath(x) for x in roots]
     c.root = roots
 
-    verbose_levels=[
-        logging.WARNING, logging.INFO, logging.DEBUG, logging.NOTSET]
-    log_level=list(zip(verbose_levels, range(c.verbosity)))[-1][0]
+    c.validate()
+
+    verbose_levels = [
+        logging.WARNING, logging.INFO, logging.DEBUG, logging.NOTSET
+    ]
+    log_level = list(zip(verbose_levels, range(c.verbosity)))[-1][0]
     init_logging(level=log_level, filename=c.log_file, frmt=c.log_frmt)
 
     if command == "update":
         from pypiserver.manage import update_all_packages
-        update_all_packages(roots, update_directory,
-                dry_run=update_dry_run, stable_only=update_stable_only)
+        update_all_packages(
+            roots, update_directory,
+            dry_run=update_dry_run, stable_only=update_stable_only
+        )
         return
 
     # Fixes #49:
@@ -290,9 +290,10 @@ def main(argv=None):
             c.server, ", ".join(bottle.server_names.keys())))
 
     bottle.debug(c.verbosity > 1)
-    bottle._stderr = ft.partial(pypiserver._logwrite,
-            logging.getLogger(bottle.__name__), logging.INFO)
-    app = pypiserver.app(**vars(c))
+    bottle._stderr = ft.partial(
+        pypiserver.logwrite, logging.getLogger(bottle.__name__), logging.INFO
+    )
+    app = pypiserver.app(config=c)
     bottle.run(app=app, host=c.host, port=c.port, server=c.server)
 
 

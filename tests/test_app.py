@@ -35,9 +35,9 @@ def _app(app):
 
 
 @pytest.fixture
-def app(tmpdir):
+def app(root):
     from pypiserver import app
-    return app(root=tmpdir.strpath, authenticated=[])
+    return app(root=root.strpath, authenticated=[], validate_config=False)
 
 
 @pytest.fixture

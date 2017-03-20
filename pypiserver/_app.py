@@ -8,7 +8,15 @@ import xml.dom.minidom
 
 from . import __version__
 from . import core
-from .bottle import static_file, redirect, request, response, HTTPError, Bottle, template
+from .bottle import (
+    Bottle,
+    HTTPError,
+    redirect,
+    request,
+    response,
+    static_file,
+    template
+)
 
 try:
     import xmlrpc.client as xmlrpclib # py3
@@ -34,7 +42,7 @@ app = Bottle()
 
 
 class auth(object):
-    "decorator to apply authentication if specified for the decorated method & action"
+    "decorator to apply authentication for the decorated method & action"
 
     def __init__(self, action):
         self.action = action
@@ -56,7 +64,7 @@ class auth(object):
 
 @app.hook('before_request')
 def log_request():
-    log.info(config.    log_req_frmt, request.environ)
+    log.info(config.log_req_frmt, request.environ)
 
 
 @app.hook('after_request')
@@ -80,12 +88,15 @@ def favicon():
 
 @app.route('/')
 def root():
+    log.debug('Handling request to "/"')
     fp = request.fullpath
 
     try:
         numpkgs = len(list(packages()))
-    except:
+    except TypeError:
         numpkgs = 0
+
+    log.debug('Found %s packages')
 
     # Ensure template() does not consider `msg` as filename!
     msg = config.welcome_msg + '\n'

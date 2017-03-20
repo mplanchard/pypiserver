@@ -1,7 +1,6 @@
 #! /usr/bin/env python
 """minimal PyPI like server for use with pip/easy_install"""
 
-from collections import namedtuple
 import functools
 import hashlib
 import io
@@ -11,84 +10,273 @@ import mimetypes
 import os
 import re
 import sys
+from collections import Iterable
 
 import pkg_resources
 
-from . import Configuration
+from . import __version__
 
 
 log = logging.getLogger(__name__)
 
 
-def configure(**kwds):
+class Configuration(object):
     """
-    :return: a 2-tuple (Configure, package-list)
+    .. see:: config-options: :func:`pypiserver.configure()`
     """
-    c = Configuration(**kwds)
-    log.info("+++Pypiserver invoked with: %s", c)
 
-    if c.root is None:
-        c. root = os.path.expanduser("~/packages")
-    roots = c.root if isinstance(c.root, (list, tuple)) else [c.root]
-    roots = [os.path.abspath(r) for r in roots]
-    for r in roots:
-        try:
-            os.listdir(r)
-        except OSError:
-            err = sys.exc_info()[1]
-            msg = "Error: while trying to list root(%s): %s"
-            sys.exit(msg % (r, err))
+    DEFAULT_SERVER = "auto"
+    FALLBACK_HASH_ALGORITHMS = (
+        'md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512'
+    )
 
-    packages = lambda: itertools.chain(*[listdir(r) for r in roots])
-    packages.root = roots[0]
+    def __init__(
+            self,
+            root=None,
+            host="0.0.0.0",
+            port=8080,
+            server=DEFAULT_SERVER,
+            redirect_to_fallback=True,
+            fallback_url="http://pypi.python.org/simple",
+            authenticated=None,
+            password_file=None,
+            overwrite=False,
+            hash_algo='md5',
+            verbosity=1,
+            log_file=None,
+            log_frmt="%(asctime)s|%(name)s|%(levelname)s|%(thread)d|%(message)s",
+            log_req_frmt="%(bottle.request)s",
+            log_res_frmt="%(status)s",
+            log_err_frmt="%(body)s: %(exception)s \n%(traceback)s",
+            welcome_file=None,
+            cache_control=None,
+            auther=None,
+            VERSION=__version__):
+        """Instantiate a configuration object
 
-    if not c.authenticated:
-        c.authenticated = []
-    if not callable(c.auther):
-        if c.password_file and c.password_file != '.':
-            from passlib.apache import HtpasswdFile
-            htPsswdFile = HtpasswdFile(c.password_file)
+        Any provided kwargs will override the default values above.
+        """
+        self.root = root
+        self.host = host
+        self.port = port
+        self.server = server
+        self.redirect_to_fallback = redirect_to_fallback
+        self.fallback_url = fallback_url
+        self.authenticated = authenticated
+        self.password_file = password_file
+        self.overwrite = overwrite
+        self.hash_algo = hash_algo
+        self.verbosity = verbosity
+        self.log_file = log_file
+        self.log_frmt = log_frmt
+        self.log_req_frmt = log_req_frmt
+        self.log_res_frmt = log_res_frmt
+        self.log_err_frmt = log_err_frmt
+        self.welcome_file = welcome_file
+        self.cache_control = cache_control
+        self.auther = auther
+        self.VERSION = VERSION
+
+        self.roots = []
+        self.welcome_msg = None
+
+        log.info("+++Pypiserver invoked with: %s", self)
+
+        self._populate()
+
+        log.info("+++Pypiserver started with: %s", self)
+
+    def __repr__(self, *args, **kwargs):
+        return 'Configuration(**%s)' % self.__dict__
+
+    def __str__(self, *args, **kwargs):
+        return 'Configuration:\n%s' % '\n'.join(
+            '%20s = %s' % (k, v) for k, v in
+            sorted(self.__dict__.items()) if k != 'welcome_msg'
+        )
+
+    def update(self, props):
+        log.debug('updating config with %s', props)
+        d = props if isinstance(props, dict) else vars(props)
+        for k, v in d.items():
+            setattr(self, k, v)
+        self._populate()
+        log.debug('updated config: %s', self)
+
+    def validate(self):
+        """Run validation methods"""
+        log.debug('validating config')
+        for attr_name in dir(self):
+            attr = getattr(self, attr_name)
+            if attr_name.startswith('_validate_') and callable(attr):
+                log.debug('running validation method %s', attr_name)
+                attr()
+
+    def _populate(self):
+        """Run population methods"""
+        log.debug('populating config')
+        for attr_name in dir(self):
+            attr = getattr(self, attr_name)
+            if attr_name.startswith('_populate_') and callable(attr):
+                log.debug('running population method %s', attr_name)
+                attr()
+
+    def _populate_authenticated(self):
+        """Populate the ``authenticated`` list if necessary"""
+        if self.authenticated is None:
+            self.authenticated = ['update']
+
+    def _populate_auther(self):
+        """Validate the auther attribute"""
+        if not callable(self.auther):
+            if self.password_file and self.password_file != '.':
+                from passlib.apache import HtpasswdFile
+                ht_passwd_file = HtpasswdFile(self.password_file)
+            else:
+                self.password_file = ht_passwd_file = None
+            self.auther = functools.partial(
+                auth_by_htpasswd_file, ht_passwd_file
+            )
+
+    def _populate_roots(self):
+        """Populate the ``roots`` attr based on ``root``"""
+        if self.root is None:
+            self.root = os.path.expanduser("~/packages")
+
+        if isinstance(self.root, (list, tuple)):
+            roots = self.root
         else:
-            c.password_file = htPsswdFile = None
-        c.auther = functools.partial(auth_by_htpasswd_file, htPsswdFile)
+            roots = [self.root]
 
-    # Read welcome-msg from external file,
-    #     or failback to the embedded-msg (ie. in standalone mode).
-    #
-    try:
-        if not c.welcome_file:
-            c.welcome_file = "welcome.html"
-            c.welcome_msg = pkg_resources.resource_string(  # @UndefinedVariable
-                __name__, "welcome.html").decode("utf-8")  # @UndefinedVariable
+        roots = [os.path.abspath(r) for r in roots]
+        self.roots = roots
+
+    def _populate_welcome_msg(self):
+        """Populate the ``welcome_msg`` attribute from ``welcome_file``"""
+        if not self.welcome_file:
+            self.welcome_file = "welcome.html"
+            self.welcome_msg = pkg_resources.resource_string(
+                __name__, "welcome.html").decode("utf-8")
         else:
-            with io.open(c.welcome_file, 'r', encoding='utf-8') as fd:
-                c.welcome_msg = fd.read()
-    except Exception:
-        log.warning(
-            "Could not load welcome-file(%s)!", c.welcome_file, exc_info=1)
+            try:
+                with io.open(self.welcome_file, 'r', encoding='utf-8') as fd:
+                    self.welcome_msg = fd.read()
+            except (OSError, IOError):
+                log.warning(
+                    "Could not load welcome-file(%s)!",
+                    self.welcome_file,
+                    exc_info=1
+                )
 
-    if c.fallback_url is None:
-        c.fallback_url = "http://pypi.python.org/simple"
+    def _validate_authenticated(self):
+        """Validate methods for which auth is reuqired"""
+        if (not self.authenticated and self.password_file != '.' or
+                self.authenticated and self.password_file == '.'):
+            auth_err = (
+                "When auth-ops-list is empty (-a=.), password-file (-P=%r) "
+                "must also be empty ('.')!"
+            )
+            sys.exit(auth_err % self.password_file)
 
-    if c.hash_algo:
-        try:
-            halgos = hashlib.algorithms_available
-        except AttributeError:
-            halgos = ['md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512']
+    def _validate_hash_algo(self):
+        """Validate any provided hash algorithm"""
+        if self.hash_algo:
+            try:
+                halgos = hashlib.algorithms_available
+            except AttributeError:
+                halgos = self.FALLBACK_HASH_ALGORITHMS
 
-        if c.hash_algo not in halgos:
-            sys.exit('Hash-algorithm %s not one of: %s' % (c.hash_algo, halgos))
+            if self.hash_algo not in halgos:
+                sys.exit(
+                    'Hash-algorithm %s not one of: %s' %
+                    (self.hash_algo, halgos)
+                )
 
-    log.info("+++Pypiserver started with: %s", c)
+    def _validate_roots(self):
+        """Validate the root attribute"""
+        for r in self.roots:
+            try:
+                os.listdir(r)
+            except OSError:
+                err = sys.exc_info()[1]
+                msg = "Error: while trying to list root(%s): %s"
+                sys.exit(msg % (r, err))
+# def configure(**kwds):
+#     """
+#     :return: a 2-tuple (Configure, package-list)
+#     """
+#     c = Configuration(**kwds)
+#     log.info("+++Pypiserver invoked with: %s", c)
+#
+#     if not c.authenticated:
+#         c.authenticated = []
+#     if not callable(c.auther):
+#         if c.password_file and c.password_file != '.':
+#             from passlib.apache import HtpasswdFile
+#             htPsswdFile = HtpasswdFile(c.password_file)
+#         else:
+#             c.password_file = htPsswdFile = None
+#         c.auther = functools.partial(auth_by_htpasswd_file, htPsswdFile)
+#
+#     # Read welcome-msg from external file,
+#     #     or failback to the embedded-msg (ie. in standalone mode).
+#     #
+#     try:
+#         if not c.welcome_file:
+#             c.welcome_file = "welcome.html"
+#             c.welcome_msg = pkg_resources.resource_string(  # @UndefinedVariable
+#                 __name__, "welcome.html").decode("utf-8")  # @UndefinedVariable
+#         else:
+#             with io.open(c.welcome_file, 'r', encoding='utf-8') as fd:
+#                 c.welcome_msg = fd.read()
+#     except Exception:
+#         log.warning(
+#             "Could not load welcome-file(%s)!", c.welcome_file, exc_info=1)
+#
+#     if c.fallback_url is None:
+#         c.fallback_url = "http://pypi.python.org/simple"
+#
+#     if c.hash_algo:
+#         try:
+#             halgos = hashlib.algorithms_available
+#         except AttributeError:
+#             halgos = ['md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512']
+#
+#         if c.hash_algo not in halgos:
+#             sys.exit('Hash-algorithm %s not one of: %s' % (c.hash_algo, halgos))
+#
+#     log.info("+++Pypiserver started with: %s", c)
+#
+#     return c
 
-    return c, packages
+
+class Packages(object):
+    """Minimal class defining a callable interface for packages"""
+
+    def __init__(self, config=None):
+        # type: (Configuration) -> None
+        """Ensure package routes are readable and iterable"""
+        if config is None:
+            self._roots = ()
+            self.root = None
+            return
+
+        self._roots = config.roots
+        self.root = config.roots[0]
+
+    def __call__(self):
+        # type: () -> Iterable
+        """Return a list of packages in the given roots"""
+        pkgs = itertools.chain(*(listdir(r) for r in self._roots))
+        log.debug('Returning package list: %s', pkgs)
+        return pkgs
 
 
-def auth_by_htpasswd_file(htPsswdFile, username, password):
+def auth_by_htpasswd_file(htpasswd_file, username, password):
     """The default ``config.auther``."""
-    if htPsswdFile is not None:
-        htPsswdFile.load_if_changed()
-        return htPsswdFile.check_password(username, password)
+    if htpasswd_file is not None:
+        htpasswd_file.load_if_changed()
+        return htpasswd_file.check_password(username, password)
 
 
 mimetypes.add_type("application/octet-stream", ".egg")
@@ -124,8 +312,8 @@ def parse_version(s):
                 parts.pop()
         parts.append(part)
     return tuple(parts)
-#
-#### -- End of distribute's code.
+
+# # # # -- End of distribute's code.
 
 
 _archive_suffix_rx = re.compile(
