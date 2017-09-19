@@ -15,7 +15,7 @@ install:
 
 script:
   - ./bin/test_standalone.sh
-  - tox
+  - py.test
   - ./bin/check_readme.sh
 
 branches:
