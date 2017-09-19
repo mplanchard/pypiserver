@@ -64,7 +64,7 @@ class auth(object):
 
 @app.hook('before_request')
 def log_request():
-    log.info(config.    log_req_frmt, request.environ)
+    log.info(config.log_req_frmt, request.environ)
 
 
 @app.hook('after_request')
