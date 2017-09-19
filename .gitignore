@@ -37,3 +37,4 @@ __pycache__/
 
 # IDE stuff
 .idea/
+venv
