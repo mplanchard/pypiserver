@@ -78,6 +78,13 @@ def usage():
       for packages not found in the local index, this URL will be used to
       redirect to (default: https://pypi.python.org/simple)
 
+    --fallback-strategy STRATEGY
+      one of "package" or "version". If "package" the fallback will be
+      triggered only if no package with the specified name is found in
+      the local index. If "version" the fallback will be triggered if
+      no package with the specified name and the specified version is
+      found in the local index. The default is "package".
+
     --server METHOD
       use METHOD to run the server. Valid values include paste,
       cherrypy, twisted, gunicorn, gevent, wsgiref, auto. The
@@ -177,6 +184,7 @@ def main(argv=None):
             "server=",
             "fallback-url=",
             "disable-fallback",
+            "fallback-strategy=",
             "overwrite",
             "hash-algo=",
             "log-file=",
@@ -244,6 +252,11 @@ def main(argv=None):
             c.redirect_to_fallback = False
         elif k == "--fallback-url":
             c.fallback_url = v
+        elif k == "--fallback-strategy":
+            strategies = ("package", "version")
+            if v not in strategies:
+                sys.exit("Strategy must be one of %s, not '%s'" % strategies, v)
+            c.fallback_strategy = v
         elif k == "--server":
             c.server = v
         elif k == "--welcome":

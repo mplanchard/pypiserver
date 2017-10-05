@@ -36,10 +36,10 @@ __pycache__/
 /.settings/
 .mypy_cache/
 
-# IDE stuff
-.idea/
-
-# Venvs
+# Virtual environments
 .venv/
 venv/
 
+# IDE stuff
+.idea/
+.vscode/

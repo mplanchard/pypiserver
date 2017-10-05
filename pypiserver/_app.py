@@ -264,15 +264,31 @@ def simple(prefix=""):
 
     files = sorted(core.find_packages(packages(), prefix=prefix),
                    key=lambda x: (x.parsed_version, x.relfn))
-    if not files:
-        if config.redirect_to_fallback:
-            return redirect("%s/%s/" % (config.fallback_url.rstrip("/"), prefix))
+
+    fallback_url = "%s/%s/" % (config.fallback_url.rstrip("/"), prefix)
+
+    if config.redirect_to_fallback:
+        if not files:
+            return redirect(fallback_url)
+
+        if config.fallback_strategy == "version":
+            fallback_links = core.fallback_links(fallback_url)
+        else:
+            fallback_links = ()
+    elif not files:
         return HTTPError(404)
 
     fp = request.fullpath
     links = [(os.path.basename(f.relfn),
               urljoin(fp, "../../packages/%s" % f.fname_and_hash(config.hash_algo)))
              for f in files]
+
+    if config.redirect_to_fallback and config.fallback_strategy == "version":
+        files = tuple(l[0] for l in links)
+        for file, link in fallback_links:
+            if file not in files:
+                links.append((file, link))
+
     tmpl = """\
     <html>
         <head>

@@ -40,6 +40,7 @@ def default_config(
         server=DEFAULT_SERVER,
         redirect_to_fallback=True,
         fallback_url=None,
+        fallback_strategy="package",
         authenticated=['update'],
         password_file=None,
         overwrite=False,
@@ -76,6 +77,10 @@ def default_config(
             If `None`, defaults to '~/packages'.
     :param redirect_to_fallback:
             see :option:`--disable-fallback`
+    :param fallback_url:
+            see :option:`--fallback-url`
+    :param fallback_strategy:
+            see :option:`--fallback-strategy`
     :param authenticated:
             see :option:`--authenticate`
     :param password_file:
@@ -179,6 +184,7 @@ def paste_app_factory(global_config, **local_conf):
     upd_conf_with_int_item(c, 'verbosity', local_conf)
     str_items = [
         'fallback_url',
+        'fallback_strategy',
         'hash_algo',
         'log_err_frmt',
         'log_file',

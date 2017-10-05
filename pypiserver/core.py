@@ -11,6 +11,12 @@ import mimetypes
 import os
 import re
 import sys
+try:
+    from urllib.parse import urljoin
+    from urllib.request import urlopen
+except ImportError:
+    from urlparse import urljoin
+    from urllib import urlopen
 
 import pkg_resources
 
@@ -18,6 +24,9 @@ from . import Configuration
 
 
 log = logging.getLogger(__name__)
+
+
+PACKAGE_LINK_RE = re.compile(r'<a href="(\S+)"[^>]*>(\S+)</a>')
 
 
 def configure(**kwds):
@@ -272,6 +281,50 @@ def store(root, filename, save_method):
     assert "/" not in filename
     dest_fn = os.path.join(root, filename)
     save_method(dest_fn, overwrite=True)  # Overwite check earlier.
+
+
+def fallback_links(url):
+    """Parse return from a fallback server.
+
+    :param url: the fallback URL form which to retrieve package links.
+
+    :return: a tuple of 2-tuples of the form (file, link), where link
+        is an absolute URL to the package on the fallback server, and
+        file is the package file name as indicated in the package list.
+    """
+    try:
+        conn = urlopen(url)
+    except IOError as exc:
+        log.error('Could not connect to fallback URL ("%s"): %s', url, exc)
+        return ()
+    else:
+        try:
+            code = conn.getcode()
+            if code != 200:
+                log.error('Fallback URL ("%s") returned non-200 status code '
+                        '(%s): %s', url, code, conn.read())
+                return ()
+            return tuple(_parsed_links(conn))
+        finally:
+            conn.close()
+
+
+def _parsed_links(conn):
+    """Parse links from a PyPI response.
+
+    :param conn: an active connection to a URL that will, upon
+        retrieval, yield a PEP 503 compliant pacakge list.
+
+    :return: an iterable of 2-tuples of the form (file, link),
+        where link is an absolute URL to the package on the fallback
+        server, and file is the package file name.
+    """
+    for line in conn.readlines():
+        line = line.strip()
+        match = PACKAGE_LINK_RE.match(line)
+        if match is not None:
+            link = urljoin(conn.url, match.group(1))
+            yield match.group(2), link
 
 
 def _digest_file(fpath, hash_algo):
