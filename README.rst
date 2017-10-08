@@ -43,6 +43,10 @@ For legacy python versions, use ``pypiserver-1.1.x`` series.
    If you're using Windows, you'll have to use their "Windows counterparts".
    The same is true for the rest of this documentation.
 
+.. Note::
+   If you are running *pypiserver* on MacOS with Python3.6, ensure you have
+   installed and enabled CA certificates for SSL validation as described
+   `here <https://stackoverflow.com/a/42334357/2351010>`_.
 
 1. Install *pypiserver* with this command::
 
@@ -118,6 +122,14 @@ For legacy python versions, use ``pypiserver-1.1.x`` series.
       --fallback-url FALLBACK_URL
         for packages not found in the local index, this URL will be used to
         redirect to (default: https://pypi.python.org/simple)
+
+      --fallback-strategy STRATEGY
+        one of "package" or "version". The default, "package", will fall
+        back to `fallback-url` only if the requested package does not
+        exist in the package index. The optional "version" strategy will
+        populate links from both the package index and the fallback
+        (with the index taking precedence), allowing pip to query the
+        fallback URL for versions not found in the package index.
 
       --server METHOD
         use METHOD to run the server. Valid values include paste,
@@ -460,6 +472,73 @@ If you have packages that are very large, you may find it helpful to
 disable hashing of files (set ``--hash-algo=off``, or ``hash_algo=None`` when
 using wsgi).
 
+Configuring a Fallback
+----------------------
+
+By default, *pypiserver* falls back to ``pypi.python.org``. Specifically,
+if a package is not found in the package index, we will issue a redirect
+to the requester, which will direct them to the appropriate
+package listing at ``pypi.python.org``.
+
+You can disable this functionality by specifying the ``disable-fallback``
+option. You can specify an alternate URL using the ``fallback-url``
+option.
+
+Importantly, the default fallback strategy, "package", *only* redirects to
+PyPI if the package is not found in the local index. **Pypiserver does not
+check to validate that the requested version is present before deciding whether
+or not to redirect!** This allows you to use *pypiserver* to ensure that
+your clients can only receive a particular version of a package, for
+example, preventing them from updating to a version you know to be broken.
+
+An alternate fallback strategy, "version", allows falling back to PyPI for
+packages that are found in the package index if the requested version is
+not found. Files found in the local package index will still take
+precedence, even if the same version is hosted on PyPI.
+
+Fallback Implementation Details
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A standard pip request cycle looks like this:
+
+* pip requests a list of versions for a package, along with their URLs
+
+* if the requested version exists, pip uses the provided URL to download
+  the package
+
+Our standard "package" strategy fallback works as follows:
+
+* pip requests a list of versions for a package, along with their URLs
+
+  * if we do not have the requested package, rather than returning a list,
+    we return a redirect to the fallback URL. Pip then goes there to get
+    its list
+
+* if the requested version exists, pip uses the provided URL to download
+  the package
+
+Note that in the above flow, we do not have the opportunity to validate
+whether or not we have the correct version of the package before
+deciding whether or not to redirect. Some users `felt this to be
+unexpected and undesirable behavior
+<https://github.com/pypiserver/pypiserver/issues/177>`_. Therefore,
+we implemented the "version" fallback strategy as follows:
+
+* pip requests a list of versions for a package, along with their URLs
+
+  * We make a request to the fallback URL to determine the package
+    versions available there, along with their URLs.
+
+  * We intersperse these versions and URLs with the list of package
+    versions available locally, giving local packages precedence in the
+    event of matching versions.
+
+* if the requested version exists, pip uses the provided URL to download
+  the package
+
+The returned URLs are therefore a mixture of *pypiserver* hosted package
+URLs and fallback URLs.
+
 
 Managing Automated Startup
 --------------------------
@@ -657,7 +736,7 @@ unstable packages on different paths::
 
 Behind a reverse proxy
 ----------------------
-You can run *pypiserver* behind a reverse proxy aswell.
+You can run *pypiserver* behind a reverse proxy as well.
 
 Nginx
 ~~~~~
@@ -675,6 +754,51 @@ Extend your nginx configuration::
         proxy_set_header  X-Real-IP $remote_addr;
         proxy_pass        http://pypi;
       }
+    }
+
+By adding standard ``nginx`` caching to this basic setup, we have been
+able to serve thousands of requests per minute with no problems, while
+also enabling SSL. For example::
+
+    upstream pypi {
+        server 127.0.0.1:8080 fail_timeout=10s;
+    }
+
+    proxy_cache_path /var/lib/nginx/pypi levels=1:2 keys_zone=pypi:16m inactive=1M max_size=1G;
+
+    server {
+        listen 80;
+        server_name pypi.example.com;
+        rewrite ^ https://$server_name$request_uri? permanent;
+    }
+
+    server {
+      listen 443 ssl;
+      server_name pypi.example.com;
+
+        ssl_certificate         /etc/ssl/certs/example_cert.crt;
+        ssl_certificate_key     /etc/ssl/private/example_key;
+
+        ssl_session_timeout 5m;
+        ssl_protocols SSLv3 TLSv1;
+        ssl_ciphers HIGH:!ADH:!MD5;
+        ssl_prefer_server_ciphers on;
+
+        proxy_cache pypi;
+        proxy_cache_key $uri;
+        proxy_cache_lock on;
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+
+        location / {
+            proxy_read_timeout 600;
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            add_header Pragma "no-cache";
+            proxy_pass http://pypi;
+            proxy_cache_valid any 5m;
+        }
     }
 
 

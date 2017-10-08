@@ -276,7 +276,10 @@ def simple(prefix=""):
         else:
             fallback_links = ()
     elif not files:
-        return HTTPError(404)
+        return HTTPError(
+            status=404,
+            body='Not Found (%s does not exist)\n\n' % prefix
+        )
 
     fp = request.fullpath
     links = [(os.path.basename(f.relfn),
@@ -284,10 +287,13 @@ def simple(prefix=""):
              for f in files]
 
     if config.redirect_to_fallback and config.fallback_strategy == "version":
-        files = tuple(l[0] for l in links)
-        for file, link in fallback_links:
-            if file not in files:
-                links.append((file, link))
+        files_info = tuple((f.pkgname_norm, f.version) for f in files)
+        for fname, link in fallback_links:
+            parsed = core.guess_pkgname_and_version(fname)
+            if parsed is None:
+                continue
+            if parsed not in files_info:
+                links.append((fname, link))
 
     tmpl = """\
     <html>

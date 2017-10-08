@@ -10,6 +10,7 @@ import logging
 import mimetypes
 import os
 import re
+import ssl
 import sys
 try:
     from urllib.parse import urljoin
@@ -280,7 +281,7 @@ def exists(root, filename):
 def store(root, filename, save_method):
     assert "/" not in filename
     dest_fn = os.path.join(root, filename)
-    save_method(dest_fn, overwrite=True)  # Overwite check earlier.
+    save_method(dest_fn, overwrite=True)  # Overwrite check earlier.
 
 
 def fallback_links(url):
@@ -292,9 +293,10 @@ def fallback_links(url):
         is an absolute URL to the package on the fallback server, and
         file is the package file name as indicated in the package list.
     """
+    ssl_context = ssl.create_default_context()
     try:
-        conn = urlopen(url)
-    except IOError as exc:
+        conn = urlopen(url, context=ssl_context)
+    except (IOError, ssl.SSLError) as exc:
         log.error('Could not connect to fallback URL ("%s"): %s', url, exc)
         return ()
     else:
@@ -302,7 +304,7 @@ def fallback_links(url):
             code = conn.getcode()
             if code != 200:
                 log.error('Fallback URL ("%s") returned non-200 status code '
-                        '(%s): %s', url, code, conn.read())
+                          '(%s): %s', url, code, conn.read())
                 return ()
             return tuple(_parsed_links(conn))
         finally:
@@ -321,6 +323,8 @@ def _parsed_links(conn):
     """
     for line in conn.readlines():
         line = line.strip()
+        if sys.version_info > (3, 0):
+            line = line.decode()
         match = PACKAGE_LINK_RE.match(line)
         if match is not None:
             link = urljoin(conn.url, match.group(1))
